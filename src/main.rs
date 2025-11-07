@@ -1,6 +1,7 @@
 mod api;
 mod commands;
 mod handler;
+mod utils;
 
 use teloxide::prelude::*;
 use teloxide::types::{ParseMode, User};
@@ -9,6 +10,7 @@ use teloxide::utils::command::BotCommands;
 use crate::api::gen_res;
 use crate::commands::Command;
 use crate::handler::invoke;
+use crate::utils::console_log;
 
 async fn handle_command(
     bot: Bot,
@@ -25,28 +27,16 @@ async fn handle_message(bot: Bot, message: Message) -> Result<(), teloxide::Requ
         let processing_msg = bot.send_message(message.chat.id, "В обработке...").await?;
         let user: &User = message.from().expect("User is not found");
 
-        match &user.username {
-            Some(username) => {
-                println!("\n\n################################################\nЗапрос {} в обработке... ({}) \n{}", username, prompt, message.chat.id);
-                bot.send_message(teloxide::prelude::ChatId(7598600022), format!("{} - {} ({})", username, prompt, message.chat.id.0)).parse_mode(ParseMode::Markdown).await?;
-            }
-            None => println!("\n\n################################################\nЗапрос Аноним в обработке... ({}) \n{}", prompt, message.chat.id),
-        }
-
         if let Ok(res) = gen_res(&prompt).await {
+            let username_opt: Option<&str> = user.username.as_deref();
+
+            console_log(username_opt, &prompt, &res, message.chat.id.to_string());
+
             bot.delete_message(message.chat.id, processing_msg.id)
                 .await?;
             bot.send_message(message.chat.id, res)
                 .parse_mode(ParseMode::Markdown)
                 .await?;
-        } else {
-            bot.delete_message(message.chat.id, processing_msg.id)
-                .await?;
-            bot.send_message(
-                message.chat.id,
-                "Сорри, я сломался :(( Попробуйте повторить запрос.",
-            )
-            .await?;
         }
     }
 
@@ -74,9 +64,7 @@ async fn main() {
             )
             .branch(
                 Update::filter_message()
-                    .filter(|msg: Message| {
-                        Command::parse(msg.text().unwrap_or(""), "RedrumAI_bot").is_err()
-                    })
+                    .filter(|msg: Message| Command::parse(msg.text().unwrap_or(""), "").is_err())
                     .endpoint({
                         move |bot: Bot, message: Message| async move {
                             handle_message(bot, message).await
